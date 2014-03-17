@@ -5,7 +5,7 @@ import pprint
 import re
 import suds.client
 import pickle
-import dns.resolver
+#import dns.resolver
 import ConfigParser
 import getpass
 
@@ -13,7 +13,7 @@ from optparse import OptionParser
 from suds.client import Client
 from suds.sudsobject import asdict, Object
 
-VERSION = '0.1'
+VERSION = '0.2-SNAPSHOT'
 
 logger = None
 stdout = None
@@ -302,8 +302,7 @@ def test_mail(conf):
         
         if conf.user:
             server.login(conf.user, conf.password)
-                    
-        server.sendmail(conf.mailfrom, conf.mailto, msg)
+        server.sendmail(conf.mailfrom, conf.mailto, msg.as_string())
         success = True
     except Exception as e:
         logger.exception(e)

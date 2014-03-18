@@ -13,7 +13,7 @@ from optparse import OptionParser
 from suds.client import Client
 from suds.sudsobject import asdict, Object
 
-VERSION = '0.2-SNAPSHOT'
+__version__ = '0.3'
 
 logger = None
 stdout = None
@@ -257,7 +257,7 @@ Available commands:
   update          Synchronize local file with remote data
   mark            Mark new information in the case file as read
 """,
-                          version = '%prog ' + VERSION)
+                          version = '%prog ' + __version__)
     
     parser.add_option("-n", "--number",
                       action = 'store',
@@ -380,8 +380,10 @@ def main():
             caseFile.dumpRepo()
     elif (cmd == 'update'):
         caseFile = CaseFile.loadRepo(path, conf)
-        
-        if caseFile.updateRepo():        
+
+        if not caseFile:
+            print('No valid case file at: ' + path)        
+        elif caseFile.updateRepo():        
             if caseFile.hasUnreadInfo():
                 notify(caseFile, opts.notify)
         else:
@@ -390,12 +392,14 @@ def main():
     elif (cmd == 'mark'):
         news = False
         caseFile = CaseFile.loadRepo(path, conf)
-        
-        news = caseFile.markRepo()
-        if not news:
-            print('There is nothing new in your case file.')
-        else:
-            print('The new information in your file have been marked as read')
+        if not caseFile:
+            print('No valid case file at: ' + path)
+	else:
+            news = caseFile.markRepo()
+            if not news:
+                print('There is nothing new in your case file.')
+            else:
+                print('The new information in your file have been marked as read')
         
     elif (cmd == 'info'):
         caseFile = CaseFile.loadRepo(path, conf)

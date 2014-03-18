@@ -1,3 +1,2 @@
 - fix SMTP AUTH extension not supported by server when send mail with google
 - check why smtplib doesn't accept Message
-- move version outside source code

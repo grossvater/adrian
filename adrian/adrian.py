@@ -394,7 +394,7 @@ def main():
         caseFile = CaseFile.loadRepo(path, conf)
         if not caseFile:
             print('No valid case file at: ' + path)
-	else:
+        else:
             news = caseFile.markRepo()
             if not news:
                 print('There is nothing new in your case file.')

@@ -1,11 +1,9 @@
-import optparse
+#!/usr/bin/env python
+
 import os.path
-import os
 import pprint
 import re
-import suds.client
 import pickle
-#import dns.resolver
 import ConfigParser
 import getpass
 
@@ -13,7 +11,7 @@ from optparse import OptionParser
 from suds.client import Client
 from suds.sudsobject import asdict, Object
 
-__version__ = '0.3'
+__version__ = '$version'
 
 logger = None
 stdout = None

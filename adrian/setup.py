@@ -2,7 +2,7 @@ from distutils.command.build_scripts import build_scripts as _build_py
 from setuptools import setup
 import os.path
 
-version = '0.4'
+version = '0.5'
 scripts = [ 'adrian.py' ]
 
 class build_py(_build_py):

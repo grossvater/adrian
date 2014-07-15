@@ -17,7 +17,7 @@ logger = None
 stdout = None
 quiet = False
               
-file_number = None
+criteria = None
 
 class Configuration(object):
     SERVICE_URL = 'http://portalquery.just.ro/query.asmx?wsdl'
@@ -59,8 +59,11 @@ class AlreadyExistsException(CaseFileException):
     pass
     
 class CaseFile(object):
+    REPO_TYPE_FILE = 0
+    REPO_TYPE_SEARCH = 1
+    
     FILE_ID_PATTERN = r'\d+/\d+/\d{4}'
-    REPO_VERSION = '1'    
+    REPO_VERSION = 2    
     DOT_FILE = '.pmr'
     DATA_FILE = 'data.repr'
 
@@ -72,16 +75,19 @@ class CaseFile(object):
     def path(self):
         return self._path
     
-    def __init__(self, id, path,
+    def __init__(self, 
+                 criteria, 
+                 path,
                  conf,
+                 type,
                  version = 0, ackVersion = 0, repoVersion = REPO_VERSION):
-        self._id = id
+        self._type = type
+        self._criteria = criteria        
         self._version = version
         self._ackVersion = ackVersion
         self._path = path
         self._repoVersion = repoVersion
         self._conf = conf        
-    
     
     @staticmethod
     def repoExists(path):
@@ -91,11 +97,12 @@ class CaseFile(object):
         return False
         
     @staticmethod
-    def createRepo(path, id, conf):
+    def createRepo(path, criteria, type, conf):
         """Creates a repository at the given path"""
         
-        if not CaseFile._validateId(id):
-            raise Exception('Invalid file number', id)
+        if (type == CaseFile.REPO_TYPE_FILE):
+            if not CaseFile._validateId(id):
+                raise Exception('Invalid file number', id)
         
         if CaseFile.repoExists(path):
             raise AlreadyExistsException, ('The given path already contains a repository', path)
@@ -103,11 +110,11 @@ class CaseFile(object):
         if not os.path.exists(path):
             os.makedirs(path)
             
-        caseFile = CaseFile(id, path, conf if conf else Configuration.create())
+        caseFile = CaseFile(criteria, path, conf if conf else Configuration.create(), type)
         caseFile._updateRepoInfo()
         
         return caseFile
-    
+        
     @staticmethod
     def loadRepo(path, conf):
         """Load repository metadata from the given path.
@@ -121,37 +128,55 @@ class CaseFile(object):
             with open(os.path.join(path, CaseFile.DOT_FILE)) as f:
                 for l in f:
                     info.update([l[0:-1].split('=', 1)])
-                
-            caseFile = CaseFile(info['id'], path, 
+            
+            repoVersion = int(info['repoVersion'])
+            if repoVersion != CaseFile.REPO_VERSION:
+                raise Exception("Unsupported repository version: " + str(repoVersion))
+             
+            caseFile = CaseFile(info['criteria'], 
+                                path, 
                                 conf,
+                                int(info['type']),
                                 version = int(info['version']),
                                 ackVersion = int(info['ackVersion']),
-                                repoVersion = int(info['repoVersion']))
+                                repoVersion = repoVersion)
                                 
         return caseFile
         
     def updateRepo(self):
         client = Client(self._conf.service_url)
-        data = client.service.CautareDosare(self._id)
-        data = CaseFile._pickleSuds(data)
+        data = None
         changed = False
-            
-        if self._version == 0:
-            changed = True
-        else:
-            oldData = None
-            
-            with open(os.path.join(self._path, CaseFile.DATA_FILE), 'rb') as f:            
-                oldData = pickle.load(f)
-            
-            changed = oldData != data
         
-        if changed:
-            self._version += 1        
-            self._updateRepoInfo()    
+        try:
+            if (self._type == CaseFile.REPO_TYPE_FILE):
+                data = client.service.CautareDosare(numarDosar=self._criteria)
+            else:
+                data = client.service.CautareDosare(numeParte=self._criteria)
+        except Exception as e:
+            logger.exception(e)            
             
-            with open(os.path.join(self._path, CaseFile.DATA_FILE), 'wb') as f:                
-                pickle.dump(data, f, protocol = 0)
+        if data == None:
+            print('Can\'t retrieve data from server')
+        else: 
+            data = CaseFile._pickleSuds(data)
+                
+            if self._version == 0:
+                changed = True
+            else:
+                oldData = None
+                
+                with open(os.path.join(self._path, CaseFile.DATA_FILE), 'rb') as f:            
+                    oldData = pickle.load(f)
+                
+                changed = oldData != data
+            
+            if changed:
+                self._version += 1        
+                self._updateRepoInfo()    
+                
+                with open(os.path.join(self._path, CaseFile.DATA_FILE), 'wb') as f:                
+                    pickle.dump(data, f, protocol = 0)
                 
         return changed
     
@@ -168,8 +193,8 @@ class CaseFile(object):
     def dumpRepo(self):
         """Prints a human readable representation of the repository, for debug only"""
                         
-        print("Id: {}\nPath: {}\nVersion: {}\nAcknowledged version: {}"
-              .format(self._id, self._path, self._version, self._ackVersion))
+        print("Criteria: {}\nPath: {}\nVersion: {}\nAcknowledged version: {}"
+              .format(self._criteria, self._path, self._version, self._ackVersion))
         
         if self._version == 0:
             print('No data yet.')
@@ -190,14 +215,15 @@ class CaseFile(object):
         metaFile = os.path.join(self._path, CaseFile.DOT_FILE)
         
         with open(metaFile, "w") as f:
+            f.write('type={}\n'.format(self._type))
             f.write('repoVersion={}\n'.format(self._repoVersion))
-            f.write('id={}\n'.format(self._id))
+            f.write('criteria={}\n'.format(self._criteria))
             f.write('version={}\n'.format(self._version))
             f.write('ackVersion={}\n'.format(self._ackVersion))   
     
     @staticmethod
-    def _validateId(id):
-        return re.match(CaseFile.FILE_ID_PATTERN, id)
+    def _validateId(fileId):
+        return re.match(CaseFile.FILE_ID_PATTERN, fileId)
     
     @staticmethod
     def _pickleSuds(sobject):
@@ -249,6 +275,7 @@ def parse():
     
 Available commands:
   create          Create a new case file
+  create-search   Create a search  
   info            Print info about the case file
   test-notify     Send a test email 
   dump            Print a human readable representation of the case file
@@ -259,10 +286,16 @@ Available commands:
     
     parser.add_option("-n", "--number",
                       action = 'store',
-                      dest = 'file_number',
+                      dest = 'criteria',
                       metavar = 'NUMBER',
                       help = 'Case file number, mandatory with create command')
-                            
+
+    parser.add_option("-p", "--party",
+                      action = 'store',
+                      dest = 'criteria',
+                      metavar = 'NUMBER',
+                      help = 'Party name, mandatory with create-search command')
+
     parser.add_option("-m", "--notify",
                       action = 'store_const',
                       dest = 'notify',
@@ -280,10 +313,18 @@ Available commands:
         parser.error('Wrong number of arguments')
         return None
     
-    if args[0] not in ['create', 'info', 'test-notify', 'dump', 'update', 'mark']:
+    if args[0] not in ['create', 'create-search', 'info', 'test-notify', 'dump', 'update', 'mark']:
         parser.error('Unknown command: ' + args[0])
         return None
     
+    if args[0] == 'create' and opts.criteria == None:
+        parser.error('File number is missing')
+        return None
+
+    if args[0] == 'create-search' and opts.criteria == None:
+        parser.error('The name of the party is missing')
+        return None
+
     return (opts, args[0], args[1])
 
 def test_mail(conf):    
@@ -364,11 +405,18 @@ def main():
     conf = Configuration.load()
     if (cmd == 'create'):
         try:
-            CaseFile.createRepo(path, opts.file_number, conf)
+            CaseFile.createRepo(path, opts.criteria, CaseFile.REPO_TYPE_FILE, conf)
             
             print('The case file was successfully initialized at the given path.')
         except AlreadyExistsException:
             print('The given path already contains a case file.')
+    elif (cmd == 'create-search'):
+        try:
+            CaseFile.createRepo(path, opts.criteria,  CaseFile.REPO_TYPE_SEARCH, conf)
+            
+            print('The search was successfully initialized at the given path.')
+        except AlreadyExistsException:
+            print('The given path already contains a repository.')
     elif (cmd == 'dump'):
         caseFile = CaseFile.loadRepo(path, conf)
         

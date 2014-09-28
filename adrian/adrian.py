@@ -101,8 +101,8 @@ class CaseFile(object):
         """Creates a repository at the given path"""
         
         if (type == CaseFile.REPO_TYPE_FILE):
-            if not CaseFile._validateId(id):
-                raise Exception('Invalid file number', id)
+            if not CaseFile._validateId(criteria):
+                raise Exception('Invalid file number', criteria)
         
         if CaseFile.repoExists(path):
             raise AlreadyExistsException, ('The given path already contains a repository', path)

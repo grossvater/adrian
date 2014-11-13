@@ -69,7 +69,7 @@ class CaseFile(object):
 
     @property
     def criteria(self):
-        return self.criteria
+        return self._criteria
     
     @property
     def path(self):

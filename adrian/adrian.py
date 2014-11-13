@@ -68,8 +68,8 @@ class CaseFile(object):
     DATA_FILE = 'data.repr'
 
     @property
-    def fileNumber(self):
-        return self._id
+    def criteria(self):
+        return self.criteria
     
     @property
     def path(self):
@@ -453,7 +453,7 @@ def main():
             print('No valid case file at: ' + path)
         else:
             print("File id: {}\nPath: {}"
-                  .format(caseFile.fileNumber,
+                  .format(caseFile.criteria,
                           caseFile.path))
             
             if caseFile.hasUnreadInfo():

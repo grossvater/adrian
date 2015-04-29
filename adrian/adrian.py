@@ -16,8 +16,6 @@ __version__ = '$version'
 logger = None
 stdout = None
 quiet = False
-              
-criteria = None
 
 class Configuration(object):
     SERVICE_URL = 'http://portalquery.just.ro/query.asmx?wsdl'
@@ -30,7 +28,8 @@ class Configuration(object):
         self.password = None
         self.mailto = self.user
         self.mailfrom = self.user
-                
+        self.start_tls = False
+
     @staticmethod
     def load():        
         config = Configuration()
@@ -81,7 +80,7 @@ class CaseFile(object):
                  conf,
                  type,
                  version = 0, ackVersion = 0, repoVersion = REPO_VERSION):
-        self._type = type
+        self.type = type
         self._criteria = criteria        
         self._version = version
         self._ackVersion = ackVersion
@@ -100,7 +99,7 @@ class CaseFile(object):
     def createRepo(path, criteria, type, conf):
         """Creates a repository at the given path"""
         
-        if (type == CaseFile.REPO_TYPE_FILE):
+        if type == CaseFile.REPO_TYPE_FILE:
             if not CaseFile._validateId(criteria):
                 raise Exception('Invalid file number', criteria)
         
@@ -149,14 +148,14 @@ class CaseFile(object):
         changed = False
         
         try:
-            if (self._type == CaseFile.REPO_TYPE_FILE):
+            if self.type == CaseFile.REPO_TYPE_FILE:
                 data = client.service.CautareDosare(numarDosar=self._criteria)
             else:
                 data = client.service.CautareDosare(numeParte=self._criteria)
         except Exception as e:
             logger.exception(e)            
             
-        if data == None:
+        if not data:
             print('Can\'t retrieve data from server')
         else: 
             data = CaseFile._pickleSuds(data)
@@ -164,12 +163,15 @@ class CaseFile(object):
             if self._version == 0:
                 changed = True
             else:
-                oldData = None
+                old_data = None
+
+                try:
+                    with open(os.path.join(self._path, CaseFile.DATA_FILE), 'rb') as f:
+                        old_data = pickle.load(f)
+                except IOError as e:
+                    pass
                 
-                with open(os.path.join(self._path, CaseFile.DATA_FILE), 'rb') as f:            
-                    oldData = pickle.load(f)
-                
-                changed = oldData != data
+                changed = old_data != data
             
             if changed:
                 self._version += 1        
@@ -215,7 +217,7 @@ class CaseFile(object):
         metaFile = os.path.join(self._path, CaseFile.DOT_FILE)
         
         with open(metaFile, "w") as f:
-            f.write('type={}\n'.format(self._type))
+            f.write('type={}\n'.format(self.type))
             f.write('repoVersion={}\n'.format(self._repoVersion))
             f.write('criteria={}\n'.format(self._criteria))
             f.write('version={}\n'.format(self._version))
@@ -266,8 +268,18 @@ class CaseFile(object):
             
         print(types)    
 
-def notify(caseFile, notify):
-    print('IMPORTANT: There is new information available in your case file.')
+def notify(case_file, conf, send_email):
+    body = 'IMPORTANT: There is new information available.'
+    if not quiet:
+        print body
+
+    if send_email:
+        if case_file.type == CaseFile.REPO_TYPE_FILE:
+            subject = 'Case file ' + case_file.criteria
+        else:
+            subject = 'Case files search for ' + case_file.criteria
+
+        send_mail(conf, subject, body)
                     
 def parse():
     parser = OptionParser(usage = 
@@ -300,7 +312,7 @@ Available commands:
                       action = 'store_const',
                       dest = 'notify',
                       const = True,
-                      help = 'Notify via email when there is new information about your file (when create or info command is supplied)')
+                      help = 'Notify via email when there is new information about your file (only for info or update command)')
    
     parser.add_option("-q", "--quiet",
                       action = 'store_const',
@@ -327,18 +339,20 @@ Available commands:
 
     return (opts, args[0], args[1])
 
-def test_mail(conf):    
+def send_mail(conf, subject, body):
     from email.mime.text import MIMEText
     import smtplib
 
     success = False
-    msg = MIMEText('It works!')
-    msg['Subject'] = 'Test from adrian.py'
-    
+    msg = MIMEText(body)
+    msg['Subject'] = subject
+
     server = smtplib.SMTP()
     try:
         server.connect(conf.host, conf.port)
-        
+        if conf.start_tls:
+            server.starttls()
+
         if conf.user:
             server.login(conf.user, conf.password)
         server.sendmail(conf.mailfrom, conf.mailto, msg.as_string())
@@ -348,8 +362,11 @@ def test_mail(conf):
         pass
     finally:
         server.quit
-        
+
     return success
+
+def test_mail(conf):
+    return send_mail(conf, 'Test from adrian.py', 'It works')
 
 def init_console(quiet):
     if quiet:        
@@ -403,39 +420,39 @@ def main():
     init_console(opts.quiet)
         
     conf = Configuration.load()
-    if (cmd == 'create'):
+    if cmd == 'create':
         try:
             CaseFile.createRepo(path, opts.criteria, CaseFile.REPO_TYPE_FILE, conf)
             
             print('The case file was successfully initialized at the given path.')
         except AlreadyExistsException:
             print('The given path already contains a case file.')
-    elif (cmd == 'create-search'):
+    elif cmd == 'create-search':
         try:
             CaseFile.createRepo(path, opts.criteria,  CaseFile.REPO_TYPE_SEARCH, conf)
             
             print('The search was successfully initialized at the given path.')
         except AlreadyExistsException:
             print('The given path already contains a repository.')
-    elif (cmd == 'dump'):
+    elif cmd == 'dump':
         caseFile = CaseFile.loadRepo(path, conf)
         
         if not caseFile:
             print('No valid case file at: ' + path)
         else:
             caseFile.dumpRepo()
-    elif (cmd == 'update'):
+    elif cmd == 'update':
         caseFile = CaseFile.loadRepo(path, conf)
 
         if not caseFile:
             print('No valid case file at: ' + path)        
-        elif caseFile.updateRepo():        
+        elif caseFile.updateRepo():
             if caseFile.hasUnreadInfo():
-                notify(caseFile, opts.notify)
+                notify(caseFile, conf, opts.notify)
         else:
             print('There is nothing new in your case file.')
         
-    elif (cmd == 'mark'):
+    elif cmd == 'mark':
         news = False
         caseFile = CaseFile.loadRepo(path, conf)
         if not caseFile:
@@ -447,7 +464,7 @@ def main():
             else:
                 print('The new information in your file have been marked as read')
         
-    elif (cmd == 'info'):
+    elif cmd == 'info':
         caseFile = CaseFile.loadRepo(path, conf)
         if not caseFile:
             print('No valid case file at: ' + path)
@@ -457,9 +474,9 @@ def main():
                           caseFile.path))
             
             if caseFile.hasUnreadInfo():
-                notify(caseFile, opts.notify)
+                notify(caseFile, conf, opts.notify)
                 
-    elif (cmd == 'test-notify'):
+    elif cmd == 'test-notify':
         if test_mail(conf):
             print('Mail test succeded')
         else:
